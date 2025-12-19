@@ -1,0 +1,102 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Mixelo Scan Resi</title>
+  <style>
+    body{font-family:Arial; padding:14px; max-width:720px; margin:auto;}
+    #reader{width:100%; border:1px solid #ddd; border-radius:14px; overflow:hidden;}
+    input,button{width:100%; padding:12px; margin:8px 0; font-size:16px;}
+    .card{border:1px solid #ddd; border-radius:14px; padding:12px; margin-top:12px;}
+    .ok{background:#eafff0; border-color:#9be7b1;}
+    .err{background:#ffecec; border-color:#ff9a9a;}
+    img{width:100%; border-radius:14px; margin-top:10px;}
+    .small{font-size:13px; color:#555;}
+  </style>
+</head>
+<body>
+  <h2>Mixelo - Scan Resi</h2>
+
+  <div id="reader"></div>
+
+  <div class="card">
+    <div class="small">Kalau scan gagal, tempel resi manual:</div>
+    <input id="resiManual" placeholder="tempel nomor resi"/>
+    <button onclick="lookupManual()">Cari</button>
+  </div>
+
+  <div id="result"></div>
+
+  <!-- html5-qrcode (lebih stabil untuk kamera di web) -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script>
+    const API_URL = "API_URL_DI_SINI"; // <-- ganti
+
+    const resultEl = document.getElementById('result');
+
+    function esc(s){return (s||'').toString().replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));}
+
+    async function lookup(resi){
+      resultEl.innerHTML = `<div class="card">Mencari resi: ${esc(resi)} ...</div>`;
+      const r = await fetch(API_URL, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ resi })
+      });
+      const data = await r.json();
+
+      if(!data.ok){
+        resultEl.innerHTML = `<div class="card err">${esc(data.msg || "Tidak ditemukan")}</div>`;
+        return;
+      }
+
+      const orders = (data.order_ids || []).join(", ");
+      const warn = data.warning ? `<div class="card err">${esc(data.warning)}</div>` : "";
+
+      const photos = (data.items || []).map(it => {
+        const sku = esc(it.sku || "");
+        const url = (it.foto_url || "").trim();
+        if(!url) return `<div class="card"><b>${sku}</b><div class="small">Foto belum ada</div></div>`;
+        return `<div class="card ok"><b>${sku}</b><img src="${url}" loading="lazy"></div>`;
+      }).join("");
+
+      resultEl.innerHTML = `
+        <div class="card ok">
+          <b>RESI:</b> ${esc(data.resi)}<br>
+          <b>NOMER PESANAN:</b> ${esc(orders)}<br>
+          <b>EKSPEDISI:</b> ${esc(data.ekspedisi || "")}<br>
+          <div class="small">Total item: ${(data.items||[]).length}</div>
+        </div>
+        ${warn}
+        ${photos}
+      `;
+    }
+
+    function lookupManual(){
+      const resi = document.getElementById('resiManual').value.trim();
+      if(!resi) return;
+      lookup(resi);
+    }
+
+    // Start scanner
+    const qr = new Html5Qrcode("reader");
+    const config = { fps: 10, qrbox: { width: 280, height: 180 } };
+
+    Html5Qrcode.getCameras().then(cams => {
+      const back = cams.find(c => /back|rear|environment/i.test(c.label)) || cams[0];
+      return qr.start(
+        back.id,
+        config,
+        (decodedText) => {
+          qr.stop().catch(()=>{});
+          lookup(decodedText.trim());
+          // setelah scan sukses, kamu bisa start lagi manual dengan refresh atau tombol tambahan
+        }
+      );
+    }).catch(err => {
+      resultEl.innerHTML = `<div class="card err">Kamera tidak bisa diakses: ${esc(err)}</div>`;
+    });
+  </script>
+</body>
+</html>
